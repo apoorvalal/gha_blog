@@ -2,8 +2,6 @@
 
 This page is automatically generated from posts in the `posts/` directory.
 
-Last updated: <!-- This will be replaced by the build date -->
-
 ## Recent Posts
 
 ## [testing](posts_html/2025-02-24_testing.html)
