@@ -30,15 +30,13 @@ jobs:
 
       - name: Update index.md with posts list
         run: |
-          # Generate posts list from posts markdown files
           posts_list=$(for post in $(ls posts/*_*.md | sort -r); do
             base=$(basename "$post" .md)
             title=$(head -n 1 "$post" | sed 's/# //')
             echo "- [$title](posts/${base}.html)"
           done)
           echo "$posts_list"
-          # Replace content between markers <!-- POSTS START --> and <!-- POSTS END -->
-          perl -0777 -pe 's/(<!-- POSTS START -->).*(<!-- POSTS END -->)/$1\n'"$posts_list"'\n$2/s' index.md > index_temp.md
+          perl -0777 -pe 's{(<!-- POSTS START -->).*?(<!-- POSTS END -->)}{$1\n'"$posts_list"'\n$2}s' index.md > index_temp.md
           mv index_temp.md index.md
 
       - name: Render index.md
