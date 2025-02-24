@@ -1,4 +1,4 @@
-# gha microblog
+# gha blog
 
 This page is automatically generated from posts in the `posts/` directory.
 
@@ -6,7 +6,13 @@ Last updated: <!-- This will be replaced by the build date -->
 
 ## Recent Posts
 
-<!-- POSTS_LIST -->
+## [testing](posts_html/2025-02-24_testing.html)
+
+*2025-02-24*
+
+---
+
+
 
 ## About
 
