@@ -1,4 +1,4 @@
-# gha microblog
+# gha blog
 
 This page is automatically generated from posts in the `posts/` directory.
 

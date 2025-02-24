@@ -1,51 +1,157 @@
-name: blog rendering via gha
-
+name: Build Website from Posts and Convert to HTML
 on:
   push:
     paths:
+      - "posts/**/*.md"
       - "index.md"
-      - "posts/**"
-
+      - "templates/**"
 jobs:
-  convert:
+  build:
     runs-on: ubuntu-latest
+
     permissions:
       contents: write
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
+
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.10"
 
       - name: Timestamp
         run: date --rfc-3339=seconds > lastBuild.txt
 
-      - name: Render Posts
+      - name: Generate Posts List and Update Index
         run: |
+          # Create posts directory if it doesn't exist
+          mkdir -p posts
+
+          # Create a Python script to process posts
+          cat > update_index.py << 'EOF'
+          #!/usr/bin/env python3
+          import os
+          import re
+          from datetime import datetime
+          from pathlib import Path
+
+          # Paths
+          posts_dir = Path("posts")
+          template_path = Path("templates/index_template.md")
+          index_path = Path("index.md")
+
+          # Create posts_html directory if it doesn't exist
+          os.makedirs("posts_html", exist_ok=True)
+
+          # Get all markdown files from posts directory
+          post_files = sorted(
+              [f for f in posts_dir.glob("*.md")],
+              key=lambda x: x.name,  # Sort by filename which starts with date
+              reverse=True  # Newest first
+          )
+
+          posts_list = []
+
+          for post_file in post_files:
+              # Parse filename (expected format: YYYY-MM-DD_title.md)
+              parts = post_file.stem.split("_", 1)
+              if len(parts) != 2:
+                  continue
+
+              date_str, title_slug = parts
+              title = title_slug.replace("-", " ")
+
+              # Read post content
+              with open(post_file, "r") as f:
+                  content = f.read()
+
+              # Look for optional front matter (simple implementation)
+              front_matter = {}
+              if content.startswith("---"):
+                  # Find the end of front matter
+                  end_marker = content.find("---", 3)
+                  if end_marker > 0:
+                      front_matter_text = content[3:end_marker].strip()
+                      # Parse basic key-value pairs
+                      for line in front_matter_text.split("\n"):
+                          if ":" in line:
+                              key, value = line.split(":", 1)
+                              front_matter[key.strip()] = value.strip()
+
+                      # Remove front matter from content
+                      content = content[end_marker+3:].strip()
+
+              # Extract actual values with fallbacks
+              title = front_matter.get("title", title)
+              date = front_matter.get("date", date_str)
+
+              # Create link to HTML version (which will be created by pandoc later)
+              post_html_filename = post_file.stem + ".html"
+
+              # Add to posts list
+              posts_list.append({
+                  "title": title,
+                  "date": date,
+                  "html_file": post_html_filename
+              })
+
+          # Generate markdown for posts list
+          posts_markdown = ""
+          for post in posts_list:
+              posts_markdown += f"## [{post['title']}](posts_html/{post['html_file']})\n\n"
+              posts_markdown += f"*{post['date']}*\n\n"
+              posts_markdown += "---\n\n"
+
+          # Read template or create default if missing
+          if template_path.exists():
+              with open(template_path, "r") as f:
+                  template = f.read()
+          else:
+              template = "# My Blog\n\n<!-- POSTS_LIST -->\n"
+
+          # Replace placeholder with posts list
+          updated_index = template.replace("<!-- POSTS_LIST -->", posts_markdown)
+
+          # Write updated index.md
+          with open(index_path, "w") as f:
+              f.write(updated_index)
+
+          print(f"Processed {len(posts_list)} posts and updated index.md")
+          EOF
+
+          # Make the script executable
+          chmod +x update_index.py
+
+          # Run the script
+          python update_index.py
+
+      - name: Convert Markdown Files to HTML
+        run: |
+          # Pull pandoc Docker image
           docker pull pandoc/core:latest
-          for post in posts/*_*.md; do
-            [ -e "$post" ] || continue
-            base=$(basename "$post" .md)
-            docker run --volume "`pwd`:/data" --entrypoint "pandoc" pandoc/core:latest -s "$post" -o "posts/${base}.html" -c style.css
+
+          # Convert main index.md to HTML
+          docker run --volume "$(pwd):/data" --user $(id -u):$(id -g) pandoc/core:latest -s /data/index.md -o /data/index.html --css=style.css --metadata title="My Blog"
+
+          # Convert each post markdown to HTML
+          for file in posts/*.md; do
+            if [ -f "$file" ]; then
+              filename=$(basename -- "$file")
+              name="${filename%.*}"
+              docker run --volume "$(pwd):/data" --user $(id -u):$(id -g) pandoc/core:latest -s "/data/$file" -o "/data/posts_html/${name}.html" --css=../style.css
+            fi
           done
 
-      - name: Update index.md with posts list
-        run: |
-          posts_list=$(for post in $(ls posts/*_*.md | sort -r); do
-            base=$(basename "$post" .md)
-            title=$(head -n 1 "$post" | sed 's/# //')
-            echo "- [$title](posts/${base}.html)"
-          done)
-          echo "$posts_list"
-          perl -0777 -pe 's{(<!-- POSTS START -->).*?(<!-- POSTS END -->)}{$1\n'"$posts_list"'\n$2}s' index.md > index_temp.md
-          mv index_temp.md index.md
-
-      - name: Render index.md
-        run: |
-          docker run --volume "`pwd`:/data" --entrypoint "pandoc" pandoc/core:latest -s index.md -o index.html -c style.css
-
-      - name: Commit and push changes
+      - name: Commit and push
         uses: EndBug/add-and-commit@v9
         with:
-          add: "."
+          add: |
+            index.md
+            index.html
+            posts_html/
+            lastBuild.txt
+          message: "Update website from posts"
           push: true
           default_author: github_actions
